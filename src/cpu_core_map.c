@@ -69,6 +69,11 @@ cpu_core_map_compute_linux(struct cpu_core_map *map);
 static int
 cpu_core_map_compute_and_check(struct cpu_core_map *map);
 
+// 初始化cpu核心映射
+// n_max_sockets: 最大socket数
+// n_max_cores_per_socket: 每个socket最大核心数
+// n_max_ht_per_core: 每个核心最大超线程数
+// eal_initialized: 是否初始化EAL
 struct cpu_core_map *
 cpu_core_map_init(uint32_t n_max_sockets,
                   uint32_t n_max_cores_per_socket,
@@ -79,20 +84,22 @@ cpu_core_map_init(uint32_t n_max_sockets,
     struct cpu_core_map *map;
     int status;
 
-    /* Check input arguments */
+    /* 检查输入参数 */
     if ((n_max_sockets == 0) ||
         (n_max_cores_per_socket == 0) ||
         (n_max_ht_per_core == 0))
         return NULL;
 
-    /* Memory allocation */
+    /* 内存分配 */
+    // 计算map需要分配的内存大小
     map_size = n_max_sockets * n_max_cores_per_socket * n_max_ht_per_core;
+    // 包括结构体cpu_core_map和map_size个int
     map_mem_size = sizeof(struct cpu_core_map) + map_size * sizeof(int);
     map = (struct cpu_core_map *) malloc(map_mem_size);
     if (map == NULL)
         return NULL;
 
-    /* Initialization */
+    /* 初始化结构体中的各个字段*/
     map->n_max_sockets = n_max_sockets;
     map->n_max_cores_per_socket = n_max_cores_per_socket;
     map->n_max_ht_per_core = n_max_ht_per_core;
@@ -100,9 +107,13 @@ cpu_core_map_init(uint32_t n_max_sockets,
     map->n_cores_per_socket = 0;
     map->n_ht_per_core = 0;
 
+    // 初始化map中的所有元素为-1，表示未分配状态
     for (i = 0; i < map_size; i++)
         map->map[i] = -1;
 
+    // 根据eal的初始化状态，适应不同的运行环境
+    // 如果eal已初始化，则使用cpu_core_map_compute_eal计算
+    // 如果eal未初始化，则使用cpu_core_map_compute_linux计算
     status = (eal_initialized) ?
              cpu_core_map_compute_eal(map) :
              cpu_core_map_compute_linux(map);
@@ -112,6 +123,7 @@ cpu_core_map_init(uint32_t n_max_sockets,
         return NULL;
     }
 
+    // 对计算出的映射表进行验证
     status = cpu_core_map_compute_and_check(map);
     if (status) {
         free(map);

@@ -90,32 +90,46 @@ int32_t qnsm_crm_agent_init(struct app_params *app, struct app_pipeline_params *
 #endif
 
 #if QNSM_PART("crm")
+// 订阅节点结构体，通过链表将多个订阅者组织在一起
 typedef struct {
-    struct qnsm_list_head node;
-    uint32_t target_lcore_id;
+    struct qnsm_list_head node;//链表节点，用于将订阅者添加到链表中
+    uint32_t target_lcore_id;//目标逻辑核心ID，表示消息发送给哪个逻辑核心，这个有啥用？
 } QNSM_CR_SUB_NODE;
 
+//通过链表头节点可以遍历所有订阅者
 typedef struct {
-    struct qnsm_list_head subscribe_head;
+    struct qnsm_list_head subscribe_head;//订阅者链表头节点
 } QNSM_CR_SUB_LIST;
 
 typedef struct {
-    enum qnsm_crm_act act;
-    QNSM_CR_SUB_LIST subscribe_list;
+    enum qnsm_crm_act act;//动作类型
+    QNSM_CR_SUB_LIST subscribe_list;//订阅者列表
 
     /*ring*/
-    struct rte_ring *ring[APP_MAX_LCORES];
+    struct rte_ring *ring[APP_MAX_LCORES];//环形缓冲区数组
 } QNSM_CR;
 
+// 核心资源管理器结构体
+// 管理消息队列系统
+// 管理每个核心的资源
+// 处理核心间的通信
 typedef struct {
     /*rcv/snd msg*/
-    uint8_t msgq_id[APP_MAX_LCORES];
-    struct rte_ring *msgq_in[QNSM_CRM_MAX_MSGQ_IN];
-    struct rte_ring *msgq_out[QNSM_CRM_MAX_MSGQ_OUT];
-    uint32_t n_msgq;
+    uint8_t msgq_id[APP_MAX_LCORES];//消息队列ID数组
+    struct rte_ring *msgq_in[QNSM_CRM_MAX_MSGQ_IN];//输入消息队列数组
+    struct rte_ring *msgq_out[QNSM_CRM_MAX_MSGQ_OUT];//输出消息队列数组
+    uint32_t n_msgq;//消息队列数量
 
-    QNSM_CR cr_map[APP_MAX_LCORES];
+    QNSM_CR cr_map[APP_MAX_LCORES];//核心资源映射表
 } QNSM_CRM;
+
+//整体架构和工作原理
+//采用发布-订阅模式实现核心间的解耦
+//1. 每个逻辑核心lcore都有自己的资源管理器
+//2. 核心可以发布资源或订阅其他核心的资源
+//3. 发布者将资源发布到消息队列中，订阅者从消息队列中接收资源，
+//通过环形缓冲区rte_ring实现核心间的通信
+//4. 消息队列用于管理核心间的消息传递
 
 typedef void (*QMSM_CRM_REQ_HANDLER)(QNSM_CRM *crm, void *msg);
 

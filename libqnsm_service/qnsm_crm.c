@@ -198,6 +198,7 @@ int32_t qnsm_crm_agent_init(struct app_params *app, struct app_pipeline_params *
 {
     QNSM_CRM_AGENT *crm_agent = NULL;
 
+    //1.分配crm代理结构体的内存
     crm_agent = rte_zmalloc_socket(NULL,
                                    sizeof(QNSM_CRM_AGENT),
                                    QNSM_DDOS_MEM_ALIGN,
@@ -205,12 +206,16 @@ int32_t qnsm_crm_agent_init(struct app_params *app, struct app_pipeline_params *
     QNSM_ASSERT(crm_agent);
     QNSM_ASSERT(1 == pipeline_params->n_msgq_in);
 
+    //2.设置输出消息队列，从pipeline的输入队列中获取
     crm_agent->msgq_out = app->msgq[pipeline_params->msgq_in[0]];
+    //3.设置输入消息队列，从pipeline的输出队列中获取
     crm_agent->msgq_in = app->msgq[pipeline_params->msgq_out[0]];
+    //4.打印当前逻辑核心ID，输入输出消息队列的地址
     printf("crm agent lcore %d msgq_out %p msgq_in %p\n",
            rte_lcore_id(),
            crm_agent->msgq_out,
            crm_agent->msgq_in);
+    //4.将crm代理结构体指针赋值给tbl_handle
     *tbl_handle = crm_agent;
 
     return 0;
@@ -423,17 +428,21 @@ int32_t qnsm_crm_init(struct app_params *app, void **crm)
     QNSM_CRM *crm_hdl = NULL;
     uint16_t lcore_id = 0;
 
+    //1.分配crm结构体的内存
     crm_hdl = rte_zmalloc_socket(NULL,
                                  sizeof(QNSM_CRM),
                                  QNSM_DDOS_MEM_ALIGN,
                                  rte_socket_id());
     QNSM_ASSERT(crm_hdl);
 
+    //2.遍历所有pipeline，获取消息队列
     for (index = 0; index < app->n_pipelines; index++) {
+        //3.构造队列名称，并获取输入input消息队列
         snprintf(msgq_name, sizeof(msgq_name), "MSGQ-REQ-%s", app->pipeline_params[index].name);
         pos = APP_PARAM_FIND(app->msgq_params, msgq_name);
         crm_hdl->msgq_in[index] = app->msgq[pos];
 
+        //4.构造队列名称，并获取输出output消息队列
         snprintf(msgq_name, sizeof(msgq_name), "MSGQ-RSP-%s", app->pipeline_params[index].name);
         pos = APP_PARAM_FIND(app->msgq_params, msgq_name);
         crm_hdl->msgq_out[index] = app->msgq[pos];
@@ -443,7 +452,6 @@ int32_t qnsm_crm_init(struct app_params *app, void **crm)
                                              app->pipeline_params[index].core_id,
                                              app->pipeline_params[index].hyper_th_id);
         crm_hdl->msgq_id[lcore_id] = index;
-
     }
 	crm_hdl->n_msgq = app->n_pipelines;
 
