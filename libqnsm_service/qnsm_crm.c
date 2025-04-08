@@ -241,17 +241,30 @@ qnsm_crm_msg_recv(QNSM_CRM *crm_handle,
     return msg;
 }
 
+/**
+ * 向指定的消息队列发送消息
+ * 
+ * @param crm_handle  CRM（核心资源管理器）句柄
+ * @param msgq_id    目标消息队列的ID
+ * @param msg        要发送的消息指针
+ * 
+ * 实现说明：
+ * 1. 使用单生产者(SP)模式向环形缓冲区写入消息
+ * 2. 如果缓冲区满，会一直重试直到成功
+ */
 static inline void
 qnsm_crm_msg_send(QNSM_CRM *crm_handle,
                   uint32_t msgq_id,
                   void *msg)
 {
+    /* 获取目标消息队列的环形缓冲区 */
     struct rte_ring *r = crm_handle->msgq_out[msgq_id];
     int status;
 
+    /* 循环尝试入队，直到成功 */
     do {
         status = rte_ring_sp_enqueue(r, msg);
-    } while (status == -ENOBUFS);
+    } while (status == -ENOBUFS);  /* 如果缓冲区满，继续尝试 */
 }
 
 static void
@@ -279,35 +292,54 @@ static void qnsm_crm_msg_req_handler(QNSM_CRM *h_crm, void *msg)
 
     switch(crm_msg->type) {
         case EN_QNSM_CRM_MSG_ONLINE: {
+            /* 初始化消息值长度为0 */
             crm_msg->value_len = 0;
-            if (EN_QNSM_CRM_ACT_PUBLISH == crm_msg->act_head.act) {
-                h_crm->cr_map[crm_msg->act_head.pub_lcore].act |= EN_QNSM_CRM_ACT_PUBLISH;
-                for (lcore_id = 0; lcore_id < APP_MAX_LCORES; lcore_id++) {
-                    qnsm_list_for_each_entry_safe(pos,
-                                                  next,
-                                                  &h_crm->cr_map[lcore_id].subscribe_list.subscribe_head, node) {
-                        if (pos->target_lcore_id == crm_msg->act_head.pub_lcore) {
-                            snprintf(ring_name, sizeof(ring_name), "ring_lcore%u--lcore%u", pos->target_lcore_id, lcore_id);
-                            ring = rte_ring_create(
-                                       ring_name,
-                                       (1024UL << 4),
-                                       rte_lcore_to_socket_id(lcore_id),
-                                       (RING_F_SP_ENQ | RING_F_SC_DEQ));
-                            QNSM_ASSERT(ring);
-                            h_crm->cr_map[pos->target_lcore_id].ring[lcore_id] = ring;
 
+            /* 处理发布者上线的情况 */
+            if (EN_QNSM_CRM_ACT_PUBLISH == crm_msg->act_head.act) {
+                /* 标记该核心为发布者 */
+                h_crm->cr_map[crm_msg->act_head.pub_lcore].act |= EN_QNSM_CRM_ACT_PUBLISH;
+
+                /* 遍历所有逻辑核心 */
+                for (lcore_id = 0; lcore_id < APP_MAX_LCORES; lcore_id++) {
+                    /* 遍历每个核心的订阅列表 */
+                    qnsm_list_for_each_entry_safe(pos, next,
+                        &h_crm->cr_map[lcore_id].subscribe_list.subscribe_head, node) {
+                        
+                        /* 如果找到对应的发布者 */
+                        if (pos->target_lcore_id == crm_msg->act_head.pub_lcore) {
+                            /* 创建通信ring的名称：ring_lcore发布者ID--lcore订阅者ID */
+                            snprintf(ring_name, sizeof(ring_name), 
+                                    "ring_lcore%u--lcore%u", 
+                                    pos->target_lcore_id, lcore_id);
+
+                            /* 创建DPDK ring缓冲区
+                             * 大小：16384 (1024 << 4)
+                             * 特性：单生产者入队(SP_ENQ)，单消费者出队(SC_DEQ)
+                             */
+                            ring = rte_ring_create(
+                                ring_name,
+                                (1024UL << 4),
+                                rte_lcore_to_socket_id(lcore_id),
+                                (RING_F_SP_ENQ | RING_F_SC_DEQ));
+                            QNSM_ASSERT(ring);
+
+                            /* 保存ring指针到CRM映射表 */
+                            h_crm->cr_map[pos->target_lcore_id].ring[lcore_id] = ring;
                             printf("ring %s\n", ring_name);
-                            /*alloc msg & fill*/
+
+                            /* 向订阅者发送通知消息 */
                             snd_msg = qnsm_crm_alloc();
                             QNSM_ASSERT(snd_msg);
                             rte_memcpy(snd_msg, crm_msg, sizeof(QNSM_CRM_MSG));
                             cr_value = snd_msg->cr_value;
-                            cr_value->tx_lcore = lcore_id;
-                            cr_value->rx_lcore = pos->target_lcore_id;
+                            cr_value->tx_lcore = lcore_id;           // 订阅者ID
+                            cr_value->rx_lcore = pos->target_lcore_id; // 发布者ID
                             cr_value->ring = ring;
                             snd_msg->value_len = sizeof(QNSM_CR_VALUE);
                             qnsm_crm_msg_send(h_crm, h_crm->msgq_id[cr_value->tx_lcore], snd_msg);
 
+                            /* 向发布者发送通知消息 */
                             snd_msg = qnsm_crm_alloc();
                             QNSM_ASSERT(snd_msg);
                             rte_memcpy(snd_msg, crm_msg, sizeof(QNSM_CRM_MSG));
@@ -439,6 +471,7 @@ int32_t qnsm_crm_init(struct app_params *app, void **crm)
     for (index = 0; index < app->n_pipelines; index++) {
         //3.构造队列名称，并获取输入input消息队列
         snprintf(msgq_name, sizeof(msgq_name), "MSGQ-REQ-%s", app->pipeline_params[index].name);
+        //在msgq_params中查找名为msgq_name的消息队列参数，如果找到，则返回其在msgq_params中的位置
         pos = APP_PARAM_FIND(app->msgq_params, msgq_name);
         crm_hdl->msgq_in[index] = app->msgq[pos];
 

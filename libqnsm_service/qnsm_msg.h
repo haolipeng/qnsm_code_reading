@@ -74,23 +74,65 @@ typedef struct {
 } QNSM_MSG_CB;
 
 typedef struct qnsm_msg_lcore_para {
+    /* 当前逻辑核心运行的应用类型
+     * 可能是会话管理、IP聚合、边缘处理等类型
+     */
     EN_QNSM_APP app_type;
+
+    /* 当前逻辑核心的ID
+     * 用于标识DPDK中的逻辑核心
+     */
     uint32_t lcore_id;
+
+    /* CPU物理socket ID
+     * 用于NUMA优化，确保内存分配在正确的socket上
+     */
     uint32_t socket_id;
+
+    /* 消息处理函数链表头
+     * 存储该核心注册的所有消息处理回调函数
+     */
     struct qnsm_list_head msg_proc_head;
+
+    /* 消息刷新定时器
+     * 用于定期刷新未发送完的消息缓冲区
+     */
     struct rte_timer      msg_flush_timer;
+
+    /* 消息服务状态
+     * 表示当前核心是发布者还是订阅者状态
+     */
     EN_QNSM_MSG_SERVICE_STATUS service_status;
 
-    /*sub lcore array*/
+    /* 订阅目标核心数组
+     * [应用类型][核心ID]的二维数组
+     * 记录当前核心订阅了哪些发布者的消息
+     */
     uint8_t sub_target_lcore[EN_QNSM_APP_MAX][QNSM_MSG_LCORE_MAX];
+
+    /* 每种应用类型的订阅者数量
+     * 记录每种应用类型有多少个订阅者
+     */
     uint8_t sub_lcore_num[EN_QNSM_APP_MAX];
 
-    /*rcv msg from lcore 0-QNSM_MSG_LCORE_MAX*/
+    /* 接收消息的核心ID数组
+     * 存储向当前核心发送消息的所有核心ID
+     */
     uint8_t rcv_lcore[QNSM_MSG_LCORE_MAX];
+
+    /* 接收消息的核心数量
+     * 记录有多少个核心向当前核心发送消息
+     */
     uint16_t rcv_lcore_num;
 
-    /*support burst rx*/
+    /* 批量接收大小
+     * 一次可以接收的最大消息数量
+     */
     uint16_t rx_burst_sz;
+
+    /* 接收消息缓冲区
+     * 用于批量接收消息的缓冲区数组
+     */
     char *rx_buf[2 * QNSM_MSG_RX_BURST_SIZE_MAX];
 } __rte_cache_aligned QNSM_MSG_LCORE_PARA;
 

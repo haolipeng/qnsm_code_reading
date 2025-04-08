@@ -106,7 +106,7 @@ typedef struct {
     QNSM_CR_SUB_LIST subscribe_list;//订阅者列表
 
     /*ring*/
-    struct rte_ring *ring[APP_MAX_LCORES];//环形缓冲区数组
+    struct rte_ring *ring[APP_MAX_LCORES];//和其他核心通信的环形缓冲区数组
 } QNSM_CR;
 
 // 核心资源管理器结构体

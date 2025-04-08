@@ -133,47 +133,71 @@ static int32_t qnsm_msg_app_init(QNSM_MSG_DATA *msg_data, EN_QNSM_APP app_type)
     return 0;
 }
 
+/*
+ * 函数名: qnsm_msg_cr_rsp
+ * 功能: 处理CRM(Core Resource Manager)的响应消息，建立发布者和订阅者之间的通信管道
+ * 参数: 
+ *   arg: 消息数据结构指针(QNSM_MSG_DATA)
+ *   msg: CRM响应消息指针(QNSM_CRM_MSG)
+ * 返回值: void
+ */
 void qnsm_msg_cr_rsp(void *arg, void *msg)
 {
+    /* 获取消息数据结构 */
     QNSM_MSG_DATA *msg_data = arg;
     QNSM_CRM_MSG *rsp_msg = msg;
+    /* 获取全局配置参数 */
     struct app_params *app = qnsm_service_get_cfg_para();
+    
+    /* 初始化变量 */
     enum qnsm_crm_act act = EN_QNSM_CRM_ACT_MAX;
-    uint32_t pub_lcore = 0xFF;
-    uint32_t sub_lcore = 0xFF;
-    uint32_t local_lcore = msg_data->lcore_para.lcore_id;
+    uint32_t pub_lcore = 0xFF;        /* 发布者核心ID */
+    uint32_t sub_lcore = 0xFF;        /* 订阅者核心ID */
+    uint32_t local_lcore = msg_data->lcore_para.lcore_id;  /* 逻辑核心ID */
 
+    /* 参数检查 */
     QNSM_ASSERT(rsp_msg);
     QNSM_ASSERT(sizeof(QNSM_CR_VALUE) == rsp_msg->value_len);
 
+    /* 获取消息动作类型和相关核心ID */
     act = rsp_msg->act_head.act;
-    sub_lcore = rsp_msg->cr_value[0].tx_lcore;
-    pub_lcore = rsp_msg->cr_value[0].rx_lcore;
+    //tx_lcore和rx_lcore是什么时候赋值的？
+    sub_lcore = rsp_msg->cr_value[0].tx_lcore;  /* 订阅者核心ID */
+    pub_lcore = rsp_msg->cr_value[0].rx_lcore;  /* 发布者核心ID */
 
     switch (act) {
-        case EN_QNSM_CRM_ACT_PUBLISH:
-        case EN_QNSM_CRM_ACT_SUBCRIBE: {
+        case EN_QNSM_CRM_ACT_PUBLISH:    /* 发布动作 */
+        case EN_QNSM_CRM_ACT_SUBCRIBE: { /* 订阅动作 */
+            /* 如果本地核心是订阅者 */
             if (local_lcore == sub_lcore) {
+                /* 获取发布者核心类型 */
                 EN_QNSM_APP pub_lcore_type = app->app_type[pub_lcore];
+                /* 获取当前订阅者数量 */
                 uint8_t sub_lcore_num = msg_data->lcore_para.sub_lcore_num[pub_lcore_type];
 
+                /* 更新订阅关系 */
                 msg_data->lcore_para.sub_target_lcore[pub_lcore_type][sub_lcore_num] = pub_lcore;
                 msg_data->lcore_para.sub_lcore_num[pub_lcore_type]++;
+                /* 设置发送管道的ring缓冲区 */
                 msg_data->tx_pipe[pub_lcore].ring = rsp_msg->cr_value[0].ring;
 
-                printf("lcore %d sub %d, sub_lcore_num %d\n", sub_lcore, pub_lcore, msg_data->lcore_para.sub_lcore_num[pub_lcore_type]);
+                printf("lcore %d sub %d, sub_lcore_num %d\n", 
+                       sub_lcore, pub_lcore, 
+                       msg_data->lcore_para.sub_lcore_num[pub_lcore_type]);
             }
 
+            /* 如果本地核心是发布者 */
             if (local_lcore == pub_lcore) {
+                /* 记录订阅者信息 */
                 msg_data->lcore_para.rcv_lcore[msg_data->lcore_para.rcv_lcore_num] = sub_lcore;
                 msg_data->lcore_para.rcv_lcore_num++;
+                /* 设置接收管道的ring缓冲区 */
                 msg_data->rx_pipe[sub_lcore].ring = rsp_msg->cr_value[0].ring;
             }
             break;
-
         }
         default: {
-            QNSM_ASSERT(0);
+            QNSM_ASSERT(0);  /* 未知动作类型，断言失败 */
         }
     }
 
@@ -266,55 +290,84 @@ int32_t qnsm_msg_init(EN_QNSM_APP app_type, void **handle)
     return 0;
 }
 
+/*
+ * 函数名: qnsm_msg_publish
+ * 功能: 将当前逻辑核心注册为消息发布者
+ * 返回值: 成功返回0
+ */
 int32_t qnsm_msg_publish(void)
 {
+    /* 获取当前逻辑核心ID */
     uint32_t              lcore_id = rte_lcore_id();
+    /* 获取消息服务的句柄 */
     QNSM_MSG_DATA *msg_data = qnsm_service_handle(EN_QNSM_SERVICE_MSG);
     QNSM_MSG_LCORE_PARA  *lcore_para = NULL;
     QNSM_CRM_MSG *msg = NULL;
 
+    /* 获取当前核心的消息参数 */
     lcore_para = &msg_data->lcore_para;
+    /* 设置当前核心的消息服务状态为发布者 */
     lcore_para->service_status |= EN_QNSM_MSG_SERVICE_PUB;
 
     /*send msg to crm*/
+    /*创建发送给CRM的消息*/
     msg = qnsm_crm_alloc();
     QNSM_ASSERT(msg);
 
-    msg->type = EN_QNSM_CRM_MSG_ONLINE;
-    msg->act_head.act = EN_QNSM_CRM_ACT_PUBLISH;
-    msg->act_head.pub_lcore = lcore_id;
-    msg->value_len = 0;
+    //设置消息属性，发送注册消息到CRM
+    msg->type = EN_QNSM_CRM_MSG_ONLINE;//上线通知
+    msg->act_head.act = EN_QNSM_CRM_ACT_PUBLISH;/* 动作类型：发布 */
+    msg->act_head.pub_lcore = lcore_id;/* 发布者核心ID */
+    msg->value_len = 0;/* 消息长度为0 */
 
     QNSM_LOG(INFO, "lcore %d send pub msg to crm\n", lcore_id);
+    /* 通过CRM代理发送消息 */
     qnsm_crm_agent_msg_send(msg);
     return 0;
 }
 
+/*
+ * 函数名: qnsm_msg_subscribe
+ * 功能: 订阅指定目标核心的消息
+ * 参数: target_lcore_id - 要订阅的目标核心ID
+ * 返回值: 成功返回0
+ */
 int32_t qnsm_msg_subscribe(uint32_t target_lcore_id)
 {
-    uint32_t              lcore_id = rte_lcore_id();
+    /* 获取当前逻辑核心ID */
+    uint32_t lcore_id = rte_lcore_id();
+    
+    /* 获取消息服务的句柄 */
     QNSM_MSG_DATA *msg_data = qnsm_service_handle(EN_QNSM_SERVICE_MSG);
     QNSM_MSG_LCORE_PARA  *lcore_para = NULL;
 
-    /*discard self*/
+    /* 如果目标核心是自己，则不需要订阅，直接返回 */
     if (lcore_id == target_lcore_id) {
         return 0;
     }
 
+    /* 获取当前核心的消息参数 */
     lcore_para = &msg_data->lcore_para;
+    /* 设置该核心为在线状态，表示可以接收消息 */
     lcore_para->service_status |= EN_QNSM_MSG_SERVICE_ONLINE;
 
+    /* 创建发送给CRM的消息 */
     QNSM_CRM_MSG *msg = NULL;
-
     msg = qnsm_crm_alloc();
-    QNSM_ASSERT(msg);
-    msg->type = EN_QNSM_CRM_MSG_ONLINE;
-    msg->act_head.act = EN_QNSM_CRM_ACT_SUBCRIBE;
-    msg->act_head.sub_lcore = lcore_id;
-    msg->act_head.pub_lcore = target_lcore_id;
-    msg->value_len = 0;
+    QNSM_ASSERT(msg);  /* 确保消息分配成功 */
 
-    QNSM_LOG(INFO, "lcore %d send sub lcore %d msg to crm\n", lcore_id, target_lcore_id);
+    /* 设置消息属性 */
+    msg->type = EN_QNSM_CRM_MSG_ONLINE;           /* 消息类型：上线通知 */
+    msg->act_head.act = EN_QNSM_CRM_ACT_SUBCRIBE; /* 动作类型：订阅 */
+    msg->act_head.sub_lcore = lcore_id;           /* 订阅者核心ID */
+    msg->act_head.pub_lcore = target_lcore_id;    /* 发布者核心ID */
+    msg->value_len = 0;                           /* 消息内容长度为0 */
+
+    /* 记录日志 */
+    QNSM_LOG(INFO, "lcore %d send sub lcore %d msg to crm\n", 
+             lcore_id, target_lcore_id);
+    
+    /* 通过CRM代理发送订阅消息 */
     qnsm_crm_agent_msg_send(msg);
 
     return 0;
