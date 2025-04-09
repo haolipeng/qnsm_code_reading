@@ -50,12 +50,14 @@ struct cpu_core_map {
     int map[0];
 };
 
+//将cpu的socket_id、core_id、ht_id转换为一维映射表中的索引位置
 static inline uint32_t
 cpu_core_map_pos(struct cpu_core_map *map,
-                 uint32_t socket_id,
-                 uint32_t core_id,
-                 uint32_t ht_id)
+                 uint32_t socket_id,    // CPU物理插槽ID
+                 uint32_t core_id,      // 物理核心ID
+                 uint32_t ht_id)        // 超线程ID
 {
+    // 计算逻辑核心在映射表中的位置
     return (socket_id * map->n_max_cores_per_socket + core_id) *
            map->n_max_ht_per_core + ht_id;
 }

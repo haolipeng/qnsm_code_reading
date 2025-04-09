@@ -75,43 +75,51 @@
 int
 app_lcore_main_loop(void *arg)
 {
-    unsigned lcore = rte_lcore_id();
-    struct app_params *app = qnsm_service_get_cfg_para();
-    EN_QNSM_APP app_type = app->app_type[lcore];
+    // 1. 获取基本信息
+    unsigned lcore = rte_lcore_id();                    // 获取当前逻辑核心ID
+    struct app_params *app = qnsm_service_get_cfg_para(); // 获取应用配置参数
+    EN_QNSM_APP app_type = app->app_type[lcore];       // 获取该核心运行的应用类型
     uint16_t lcore_id = 0;
     uint32_t p_id;
     struct app_pipeline_params *params = NULL;
+
+    // 2. 初始化函数数组
     static QNSM_APP_INIT init_fun[EN_QNSM_APP_MAX] = {
-        qnsm_sess_service_init,
-        qnsm_service_cus_ip_agg_init,
-        qnsm_service_svr_host_init,
-        qnsm_edge_service_init,
-        qnsm_master_init,
+        qnsm_sess_service_init,        // 会话管理服务初始化
+        qnsm_service_cus_ip_agg_init,  // 自定义IP聚合服务初始化
+        qnsm_service_svr_host_init,    // 服务器主机初始化
+        qnsm_edge_service_init,        // 边缘服务初始化
+        qnsm_master_init,              // 主控服务初始化
 #ifdef QNSM_LIBQNSM_IDPS
-        qnsm_detect_service_init,
+        qnsm_detect_service_init,      // 入侵检测服务初始化（条件编译）
 #else
         NULL,
 #endif
-        qnsm_service_dump_init,
+        qnsm_service_dump_init,        // 数据转储服务初始化
         NULL,
-        qnsm_dummy_init,
+        qnsm_dummy_init,               // 测试服务初始化
     };
 
+    // 3. 查找当前核心对应的pipeline参数
     for (p_id = 0; p_id < app->n_pipelines; p_id++) {
         params = &app->pipeline_params[p_id];
 
+        // 通过socket_id, core_id和hyper_th_id映射到逻辑核心ID
         lcore_id = cpu_core_map_get_lcore_id(app->core_map,
                                              params->socket_id,
                                              params->core_id,
                                              params->hyper_th_id);
+        // 找到当前核心对应的pipeline参数后跳出循环
         if (lcore_id == lcore) {
             break;
         }
     }
 
+    // 4. 启动服务
     if (params && init_fun[app_type]) {
-
+        // 打印启动信息
         printf("Logical core %u (%s) main loop.\n", lcore, params->name);
+        // 启动应用服务
         qnsm_servcie_app_launch(params,
                                 init_fun[app_type]);
     }

@@ -134,8 +134,8 @@ MAIN(int argc, char **argv)
     app_config_init(app_paras);
     app_config_args(app_paras, argc, argv);
     app_config_preproc(app_paras);
-    app_config_parse(app_paras, app_paras->parser_file);
-    app_config_check(app_paras);
+    app_config_parse(app_paras, app_paras->parser_file);//解析配置文件
+    app_config_check(app_paras);//检查配置文件
 
     /*eal , link Init */
     app_init(app_paras);

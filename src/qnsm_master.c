@@ -41,10 +41,6 @@
 #include <cmdline.h>
 #include <rte_table_acl.h>
 
-#ifdef __LEARN_SERVICE_VIP
-#include <hiredis/hiredis.h>
-#endif
-
 #include "cJSON.h"
 #include "util.h"
 #include "qnsm_dbg.h"
@@ -58,11 +54,6 @@
 #include "qnsm_idps_lib_ex.h"
 #include "qnsm_session_ex.h"
 #include "qnsm_master_ex.h"
-
-#ifdef __LEARN_SERVICE_VIP
-
-#define DYN_VIP_REDIS_GET_CMD_FORMAT ("GET vip:%s:idc_name")
-#endif
 
 typedef struct {
     /*global cfg data*/
@@ -80,11 +71,6 @@ typedef struct {
 
     /*time syn*/
     struct rte_timer syn_clock;
-
-#ifdef __LEARN_SERVICE_VIP
-    /*hiredis*/
-    redisContext *redis_ctx;
-#endif
 
 #ifdef QNSM_LIBQNSM_IDPS
     uint8_t deploy_idps;
@@ -135,59 +121,6 @@ static int32_t qnsm_master_encap_biz_vip_msg(void *msg, uint32_t *msg_len, void 
 
     return 0;
 }
-
-#ifdef __LEARN_SERVICE_VIP
-static void qnsm_master_send_json_msg(QNSM_MASTER_DATA *master_data, QNSM_IN_ADDR *in_addr, const char *vip_str)
-{
-    cJSON *root = NULL;
-
-    QNSM_ASSERT(vip_str);
-    root = cJSON_CreateObject();
-
-    cJSON_AddStringToObject(root,"type", "dyn_vip");
-    cJSON_AddStringToObject(root, "dc", master_data->edge_cfg_data->dc_name);
-    cJSON_AddStringToObject(root, "vip", vip_str);
-
-    qnsm_kafka_send_msg(QNSM_KAFKA_DYN_VIP_TOPIC, root, in_addr->in6_addr.s6_addr32[0]);
-
-    if (root) {
-        cJSON_Delete(root);
-    }
-    QNSM_DEBUG(QNSM_DBG_M_VIPAGG, QNSM_DBG_EVT, "send vip %s to DYN_VIP_TOPIC success\n", vip_str);
-    return;
-}
-
-int32_t qnsm_master_redis_init(redisContext **pp_ctx, const char *addr, uint16_t port, const char* token)
-{
-    redisContext *c = NULL;
-    redisReply *reply;
-    uint32_t conn_cnt = 0;
-    char cmd[128] = {0};
-
-    while ((3 > conn_cnt) && (NULL == *pp_ctx)) {
-        c = redisConnect(addr, port);
-        if (c == NULL || c->err) {
-            if (c) {
-                printf("Connection error: %s\n", c->errstr);
-                redisFree(c);
-            } else {
-                printf("Connection error: can't allocate redis context\n");
-            }
-            conn_cnt++;
-        } else {
-            *pp_ctx = c;
-            snprintf(cmd, sizeof(cmd), DYN_VIP_REDIS_AUTH_CMD_FORMAT, token);
-
-            /*auth*/
-            while(NULL == (reply = redisCommand(c, cmd)));
-            QNSM_LOG(CRIT, "redis connect success\n");
-            break;
-        }
-    }
-    return 0;
-}
-
-#endif
 
 static int32_t qnsm_master_vip_add_msg_proc(void *data, uint32_t data_len)
 {
@@ -289,82 +222,6 @@ static int32_t qnsm_master_vip_add_msg_proc(void *data, uint32_t data_len)
         QNSM_LOG(CRIT, "ip:%s, local_vip:0 match all net segments\n", ip_str);
         return ret;
     }
-
-#ifdef __LEARN_SERVICE_VIP
-    QNSM_BORDERM_CFG *bm_cfg = &qnsm_get_groups()->borderm_cfg;
-    redisReply *reply;
-    char cmd[128] = {0};
-    uint8_t  is_local_vip = 0;
-
-    snprintf(cmd, sizeof(cmd), DYN_VIP_REDIS_GET_CMD_FORMAT, ip_str);
-    if (bm_cfg->redis_enable
-        && (master_data->redis_ctx)
-        && (reply = redisCommand(master_data->redis_ctx, cmd))) {
-        switch (reply->type) {
-            case REDIS_REPLY_STRING: {
-                if (strncasecmp(reply->str, qnsm_get_edge_conf()->dc_name, strlen(qnsm_get_edge_conf()->dc_name))) {
-                    is_local_vip = 0;
-                } else {
-                    is_local_vip = 1;
-                }
-                vip_msg.cmd_data[0] = is_local_vip;
-
-                if (is_local_vip) {
-                    /*syn local dc biz vip to custom ip/DUMP comp*/
-                    (void)qnsm_msg_send_multi(EN_QNSM_DUMP,
-                                              QNSM_MSG_SYN_BIZ_VIP,
-                                              &vip_msg,
-                                              1);
-                    (void)qnsm_msg_send_multi(EN_QNSM_SIP_AGG,
-                                              QNSM_MSG_SYN_BIZ_VIP,
-                                              &vip_msg,
-                                              1);
-                }
-
-                /*
-                *QNSM_MSG_SYN_BIZ_VIP msg to sessm
-                *local: get direction
-                *remote dc vip:store to filter
-                */
-                (void)qnsm_msg_send_multi(EN_QNSM_SESSM,
-                                          QNSM_MSG_SYN_BIZ_VIP,
-                                          &vip_msg,
-                                          1);
-                (void)qnsm_msg_send_multi(EN_QNSM_VIP_AGG,
-                                          QNSM_MSG_SYN_BIZ_VIP,
-                                          &vip_msg,
-                                          1);
-                QNSM_DEBUG(QNSM_DBG_M_VIPAGG, QNSM_DBG_EVT, "rcv redis dyn vip ack %s success\n", ip_str);
-                QNSM_LOG(CRIT, "rcv redis dyn vip ack str %s, (ip:%s, local_vip:%u)\n", reply->str, ip_str, is_local_vip);
-                break;
-            }
-            case REDIS_REPLY_NIL:
-                /*kafka*/
-                qnsm_master_send_json_msg(master_data, in_addr, ip_str);
-                is_local_vip = 0;
-                vip_msg.cmd_data[0] = is_local_vip;
-
-                (void)qnsm_msg_send_multi(EN_QNSM_VIP_AGG,
-                                          QNSM_MSG_SYN_BIZ_VIP,
-                                          &vip_msg,
-                                          1);
-                QNSM_LOG(CRIT, "rcv redis dyn vip nil, (ip:%s, local_vip:%u)\n", ip_str, is_local_vip);
-                break;
-            case REDIS_REPLY_ERROR:
-                QNSM_LOG(CRIT, "rcv redis dyn vip ack err %s, (ip:%s)\n", reply->str, ip_str);
-                break;
-            default:
-                break;
-        }
-        freeReplyObject(reply);
-    } else {
-        redisFree(master_data->redis_ctx);
-        master_data->redis_ctx = NULL;
-        qnsm_master_redis_init(&master_data->redis_ctx, bm_cfg->redis_addr, bm_cfg->redis_port, bm_cfg->auth_token);
-    }
-
-    return ret;
-#endif
 
     /*set idc vip*/
     vip_msg.cmd_data[0] = 0;
@@ -825,15 +682,6 @@ int32_t qnsm_master_init(void)
                           rte_get_timer_hz(), PERIODICAL,
                           rte_lcore_id(), qnsm_master_clock_syn_timer, NULL);
     QNSM_LOG(CRIT, "syn clock init %d\n", ret);
-
-#ifdef __LEARN_SERVICE_VIP
-    QNSM_BORDERM_CFG *bm_cfg = &qnsm_get_groups()->borderm_cfg;
-
-    /*redis init*/
-    if (bm_cfg->redis_enable) {
-        qnsm_master_redis_init(&master_data->redis_ctx, bm_cfg->redis_addr, bm_cfg->redis_port, bm_cfg->auth_token);
-    }
-#endif
 
     return 0;
 }

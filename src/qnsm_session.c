@@ -984,7 +984,7 @@ int32_t  qnsm_sess_proc(QNSM_PACKET_INFO *pkt_info, int32_t lcore_id, struct rte
     /*update statis*/
     pkt_len = pkt_info->pkt_len;
 
-    /* ����֡���20�ֽ� */
+    /* ����֡���20�ֽ� */
     pkt_len += 20;
 
     /* sess statis */
@@ -1354,6 +1354,8 @@ int32_t qnsm_sess_service_init(void)
     }
 
     /*app reg msg*/
+    //遍历所有逻辑核心，如果核心类型为EN_QNSM_EDGE、EN_QNSM_SIP_AGG或EN_QNSM_MASTER，则订阅消息
+    //这些模块需要接收会话模块产生的消息
     for (lcore_id = 0; lcore_id < APP_MAX_LCORES; lcore_id++) {
         if ((EN_QNSM_EDGE == app_type[lcore_id])
             || (EN_QNSM_SIP_AGG == app_type[lcore_id])

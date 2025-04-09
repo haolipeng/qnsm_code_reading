@@ -38,13 +38,13 @@ typedef enum {
 
 typedef enum {
     EN_QNSM_SESSM = 0,
-    EN_QNSM_SIP_AGG,
-    EN_QNSM_VIP_AGG,
-    EN_QNSM_EDGE,
-    EN_QNSM_MASTER,
-    EN_QNSM_DETECT,
-    EN_QNSM_DUMP,
-    EN_QNSM_TEST,
+    EN_QNSM_SIP_AGG,//源ip聚合模块
+    EN_QNSM_VIP_AGG,//目的ip聚合模块
+    EN_QNSM_EDGE,//边缘模块是什么意思？
+    EN_QNSM_MASTER,//主控模块，负责整体协调和控制
+    EN_QNSM_DETECT,//检测模块
+    EN_QNSM_DUMP,//dump模块
+    EN_QNSM_TEST,//测试模块
     EN_QNSM_DUMMY,
     EN_QNSM_APP_MAX
 } EN_QNSM_APP;

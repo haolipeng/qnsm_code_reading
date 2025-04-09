@@ -2625,8 +2625,8 @@ app_config_parse(struct app_params *app, const char *file_name)
     APP_PARAM_COUNT(app->source_params, app->n_pktq_source);
     APP_PARAM_COUNT(app->sink_params, app->n_pktq_sink);
     APP_PARAM_COUNT(app->msgq_params, app->n_msgq);
+    //计算有效的pipeline参数个数，将统计结果存储到app->n_pipelines中
     APP_PARAM_COUNT(app->pipeline_params, app->n_pipelines);
-
     if (app->port_mask == 0)
         assign_link_pmd_id_from_pci_bdf(app);
 

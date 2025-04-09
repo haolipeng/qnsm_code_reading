@@ -19,10 +19,6 @@
 #ifndef __QNSM_FLOWM__
 #define __QNSM_FLOWM__
 
-#ifdef __LEARN_SERVICE_VIP
-#include <hiredis/hiredis.h>
-#endif
-
 #include <rte_rwlock.h>
 #include <cmdline.h>
 #include <cmdline_socket.h>
@@ -38,10 +34,6 @@
 
 #ifdef __cplusplus
 extern "C" {
-#endif
-
-#ifdef __LEARN_SERVICE_VIP
-#define DYN_VIP_REDIS_AUTH_CMD_FORMAT     ("AUTH %s")
 #endif
 
 /*lpm tbl size*/
